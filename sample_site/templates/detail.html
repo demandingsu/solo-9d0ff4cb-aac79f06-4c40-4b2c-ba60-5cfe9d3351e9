@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ a.title }}（{{ a.notice_no }}）</title>
+  <style>
+    body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; color: #333; }
+    h1 { color: #2c5f8a; }
+    dl.notice-fields { display: grid; grid-template-columns: 8em 1fr; gap: .4em 1em; background: #f7f9fb; padding: 1em; border-radius: 6px; }
+    dl.notice-fields dt { font-weight: bold; color: #555; }
+    dl.notice-fields dd { margin: 0; }
+    .notice-body { margin: 1.5em 0; line-height: 1.8; }
+  </style>
+</head>
+<body>
+  <div class="notice" data-notice-type="{{ a.type }}">
+    <h1>{{ a.type_label }}</h1>
+    <h2>{{ a.title }}</h2>
+    <dl class="notice-fields">
+      <dt>项目编号</dt><dd id="project-no">{{ a.project_no }}</dd>
+      <dt>公告编号</dt><dd id="notice-no">{{ a.notice_no }}</dd>
+      <dt>发布时间</dt><dd id="publish-time">{{ a.publish_time }}</dd>
+      {% if a.deadline %}<dt>截标时间</dt><dd id="deadline">{{ a.deadline }}</dd>{% endif %}
+      {% if a.target %}<dt>所指公告</dt><dd id="target-notice"><a href="/detail/{{ a.target }}.html">{{ a.target }}</a></dd>{% endif %}
+    </dl>
+    <div class="notice-body">{{ a.body }}</div>
+    <p><a href="/list.html?page=1">返回列表</a></p>
+  </div>
+</body>
+</html>

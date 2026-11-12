@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>截标时间核对工具</title>
+  <style>
+    :root { --blue: #2c5f8a; --green: #1e7e34; --red: #b02a37; --gray: #6c757d; }
+    * { box-sizing: border-box; }
+    body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; max-width: 1080px; margin: 0 auto; padding: 1.5em 1em 3em; color: #2b2b2b; background: #fafbfc; }
+    h1 { color: var(--blue); margin-bottom: .2em; }
+    h2 { margin-top: 1.8em; border-left: 4px solid var(--blue); padding-left: .5em; font-size: 1.15em; }
+    .subtitle { color: var(--gray); margin-top: 0; }
+    form.scrape { display: flex; gap: .6em; margin: 1.2em 0; flex-wrap: wrap; }
+    form.scrape input[type=text] { flex: 1 1 32em; padding: .55em .7em; border: 1px solid #c8d0d8; border-radius: 5px; font-size: 1em; }
+    form.scrape button { padding: .55em 1.6em; background: var(--blue); color: #fff; border: 0; border-radius: 5px; font-size: 1em; cursor: pointer; }
+    form.scrape button:hover { background: #234c6d; }
+    .banner { padding: .8em 1em; border-radius: 6px; margin: 1em 0; line-height: 1.6; }
+    .banner.ok { background: #e6f4ea; border: 1px solid #b7dfc2; color: var(--green); }
+    .banner.err { background: #fbe9eb; border: 1px solid #f1c2c8; color: var(--red); }
+    .banner a { color: inherit; word-break: break-all; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { border: 1px solid #e2e6ea; padding: .55em .7em; text-align: left; vertical-align: top; }
+    th { background: #f0f4f8; white-space: nowrap; }
+    .badge { display: inline-block; padding: .15em .7em; border-radius: 1em; font-size: .9em; color: #fff; white-space: nowrap; }
+    .badge.active { background: var(--green); }
+    .badge.cancelled { background: var(--gray); }
+    .deadline { font-weight: bold; color: #a33b00; white-space: nowrap; }
+    .deadline.none { color: var(--gray); font-weight: normal; }
+    ol.chain { margin: 0; padding-left: 1.4em; }
+    ol.chain li { margin: .25em 0; line-height: 1.5; }
+    ol.chain a { color: var(--blue); }
+    .muted { color: var(--gray); font-size: .9em; }
+    .round-status { white-space: nowrap; }
+    .round-status.success { color: var(--green); }
+    .round-status.failed { color: var(--red); }
+    .round-status.running { color: #b8860b; }
+    .empty { color: var(--gray); background: #fff; border: 1px dashed #c8d0d8; border-radius: 6px; padding: 1.5em; text-align: center; }
+    code { background: #eef1f4; padding: .1em .35em; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>截标时间核对工具</h1>
+  <p class="subtitle">输入与示例公告站同结构的列表网址，抓取同源分页与详情页，按项目串起公告链，核对真实截标时间。</p>
+
+  <form class="scrape" method="post" action="/scrape">
+    <input type="text" name="start_url" value="{{ default_start_url }}" placeholder="http://sample-site:8000/list.html" required>
+    <button type="submit">开始抓取</button>
+  </form>
+
+  {% if msg %}
+  <div class="banner {{ 'err' if last_round and last_round['status'] == 'failed' else 'ok' }}">{{ msg }}</div>
+  {% endif %}
+
+  {% if last_round and last_round['status'] == 'failed' and not msg %}
+  <div class="banner err">
+    第 {{ last_round['id'] }} 轮抓取失败：{{ last_round['error_url'] }}（{{ last_round['error_message'] }}）。以下仍为上一轮成功结果。
+  </div>
+  {% endif %}
+
+  <h2>项目最终状态</h2>
+  {% if projects %}
+  <p class="muted">结果来自第 {{ latest_ok['id'] }} 轮采集（{{ latest_ok['finished_at'] }} 完成，来源：<a href="{{ latest_ok['start_url']|public_url }}">{{ latest_ok['start_url']|public_url }}</a>）。</p>
+  <table>
+    <thead>
+      <tr><th>项目编号</th><th>最终状态</th><th>当前截标时间</th><th>公告链（按发布时间，点击来源查看依据）</th></tr>
+    </thead>
+    <tbody>
+      {% for p in projects %}
+      <tr>
+        <td><strong>{{ p.project_no }}</strong></td>
+        <td><span class="badge {{ 'active' if p.status == '进行中' else 'cancelled' }}">{{ p.status }}</span></td>
+        <td>
+          {% if p.status == '停办' %}<span class="deadline none">已停办</span>
+          {% elif p.deadline %}<span class="deadline">{{ p.deadline }}</span>
+          {% else %}<span class="deadline none">未注明</span>{% endif %}
+        </td>
+        <td>
+          <ol class="chain">
+            {% for c in p.chain %}
+            <li>[{{ c.publish_time }}] 【{{ c.type_label }}】{{ c.notice_no }} — {{ c.note }}
+              <a href="{{ c.url|public_url }}" target="_blank" rel="noopener">来源</a></li>
+            {% endfor %}
+          </ol>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">尚无成功采集结果。请在上方输入列表网址并点击“开始抓取”。</div>
+  {% endif %}
+
+  <h2>采集轮次</h2>
+  {% if rounds %}
+  <table>
+    <thead>
+      <tr><th>轮次</th><th>开始时间</th><th>结束时间</th><th>起始网址</th><th>状态</th><th>列表页</th><th>详情页</th><th>失败网址 / 原因</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rounds %}
+      <tr>
+        <td>#{{ r['id'] }}</td>
+        <td class="muted">{{ r['started_at'] }}</td>
+        <td class="muted">{{ r['finished_at'] or '—' }}</td>
+        <td><a href="{{ r['start_url']|public_url }}">{{ r['start_url']|public_url }}</a></td>
+        <td class="round-status {{ r['status'] }}">{{ {'success': '成功', 'failed': '失败', 'running': '进行中'}[r['status']] }}</td>
+        <td>{{ r['list_pages'] }}</td>
+        <td>{{ r['detail_pages'] }}</td>
+        <td>{% if r['error_url'] %}<a href="{{ r['error_url']|public_url }}">{{ r['error_url']|public_url }}</a><br><span class="muted">{{ r['error_message'] }}</span>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">暂无采集记录。</div>
+  {% endif %}
+</body>
+</html>
