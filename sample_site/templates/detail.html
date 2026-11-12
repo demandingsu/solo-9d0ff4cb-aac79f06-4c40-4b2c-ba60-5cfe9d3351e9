@@ -21,10 +21,10 @@
       <dt>公告编号</dt><dd id="notice-no">{{ a.notice_no }}</dd>
       <dt>发布时间</dt><dd id="publish-time">{{ a.publish_time }}</dd>
       {% if a.deadline %}<dt>截标时间</dt><dd id="deadline">{{ a.deadline }}</dd>{% endif %}
-      {% if a.target %}<dt>所指公告</dt><dd id="target-notice"><a href="/detail/{{ a.target }}.html">{{ a.target }}</a></dd>{% endif %}
+      {% if a.target %}<dt>所指公告</dt><dd id="target-notice"><a href="/{{ catalog }}/detail/{{ a.target }}.html">{{ a.target }}</a></dd>{% endif %}
     </dl>
     <div class="notice-body">{{ a.body }}</div>
-    <p><a href="/list.html?page=1">返回列表</a></p>
+    <p><a href="/{{ catalog }}/list.html?page=1">返回{{ catalog_name }}</a></p>
   </div>
 </body>
 </html>

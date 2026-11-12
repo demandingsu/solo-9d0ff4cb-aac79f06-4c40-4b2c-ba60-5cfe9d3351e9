@@ -2,9 +2,13 @@
 
 设计要点：
 - 每一轮采集对应 rounds 表一行，公告挂在 round_id 下，轮次之间互不影响；
+- 每轮按“规范化的起始目录网址”（catalog.catalog_key）归档：同一目录的
+  list.html、list.html?page=1、list.html?page=2 归并为同一目录键；
 - 公告只在整轮抓取全部成功后，于同一事务内写入并标记轮次成功，
   因此失败轮次不会留下半截数据，也不会污染上一轮结果（重抓不叠加）；
-- 页面始终展示最近一次 status='success' 的轮次结果。
+- 结果隔离：页面以最近一轮的目录键为准，失败轮次只回退到**同一目录**的
+  最近成功快照；该目录没有成功快照时不显示任何项目结果，
+  避免把别的公告站数据当成当前目录的结论。
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import sqlite3
 from datetime import datetime
 from typing import Iterable
 
+from catalog import normalize_catalog_url
 from scraper import Announcement
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "app.db"))
@@ -24,6 +29,7 @@ CREATE TABLE IF NOT EXISTS rounds (
     started_at TEXT NOT NULL,
     finished_at TEXT,
     start_url TEXT NOT NULL,
+    catalog_key TEXT NOT NULL DEFAULT '',   -- 规范化的起始目录网址（结果隔离的分组键）
     status TEXT NOT NULL DEFAULT 'running',   -- running / success / failed
     list_pages INTEGER NOT NULL DEFAULT 0,
     detail_pages INTEGER NOT NULL DEFAULT 0,
@@ -42,7 +48,12 @@ CREATE TABLE IF NOT EXISTS announcements (
     title TEXT,
     url TEXT NOT NULL
 );
+"""
+
+# 索引依赖迁移后的列结构，须在 _migrate 之后创建
+SCHEMA_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_announcements_round ON announcements(round_id);
+CREATE INDEX IF NOT EXISTS idx_rounds_catalog ON rounds(catalog_key, status, id);
 """
 
 
@@ -62,6 +73,8 @@ def _connect() -> sqlite3.Connection:
 def init_db() -> None:
     with _connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+        conn.executescript(SCHEMA_INDEXES)
         # 上次进程退出可能留下 running 状态的轮次，统一标记为失败
         conn.execute(
             "UPDATE rounds SET status='failed', finished_at=?, error_message='进程中断，轮次未完成' "
@@ -70,11 +83,24 @@ def init_db() -> None:
         )
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """兼容旧库：rounds 表补 catalog_key 列并按 start_url 回填。"""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(rounds)")}
+    if "catalog_key" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN catalog_key TEXT NOT NULL DEFAULT ''")
+    rows = conn.execute("SELECT id, start_url FROM rounds WHERE catalog_key=''").fetchall()
+    for row in rows:
+        conn.execute(
+            "UPDATE rounds SET catalog_key=? WHERE id=?",
+            (normalize_catalog_url(row["start_url"]), row["id"]),
+        )
+
+
 def create_round(start_url: str) -> int:
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO rounds (started_at, start_url, status) VALUES (?, ?, 'running')",
-            (_now(), start_url),
+            "INSERT INTO rounds (started_at, start_url, catalog_key, status) VALUES (?, ?, ?, 'running')",
+            (_now(), start_url, normalize_catalog_url(start_url)),
         )
         return cur.lastrowid
 
@@ -116,10 +142,12 @@ def finish_round_failed(round_id: int, error_url: str, error_message: str) -> No
         )
 
 
-def get_latest_success_round() -> sqlite3.Row | None:
+def get_latest_success_round(catalog_key: str) -> sqlite3.Row | None:
+    """同一目录键下最近一次成功轮次；该目录没有成功快照时返回 None。"""
     with _connect() as conn:
         return conn.execute(
-            "SELECT * FROM rounds WHERE status='success' ORDER BY id DESC LIMIT 1"
+            "SELECT * FROM rounds WHERE status='success' AND catalog_key=? ORDER BY id DESC LIMIT 1",
+            (catalog_key,),
         ).fetchone()
 
 

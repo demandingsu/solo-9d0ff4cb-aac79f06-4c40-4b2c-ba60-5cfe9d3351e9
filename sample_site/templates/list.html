@@ -2,10 +2,13 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>招标公告列表 - 第 {{ page }} 页</title>
+  <title>{{ catalog_name }} - 第 {{ page }} 页</title>
   <style>
     body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; color: #333; }
     h1 { border-bottom: 2px solid #2c5f8a; padding-bottom: .3em; }
+    .catalog-nav { margin: 0 0 1em; }
+    .catalog-nav a { margin-right: 1em; color: #2c5f8a; text-decoration: none; }
+    .catalog-nav a.current { font-weight: bold; text-decoration: underline; }
     ul.notice-list { list-style: none; padding: 0; }
     ul.notice-list li { padding: .6em .2em; border-bottom: 1px solid #e0e0e0; }
     ul.notice-list a { color: #2c5f8a; text-decoration: none; }
@@ -18,23 +21,28 @@
   </style>
 </head>
 <body>
-  <h1>公开招标公告</h1>
+  <div class="catalog-nav">
+    {% for key, cat in catalogs.items() %}
+    <a href="/{{ key }}/list.html?page=1" class="{{ 'current' if key == catalog else '' }}">{{ cat.name }}</a>
+    {% endfor %}
+  </div>
+  <h1>{{ catalog_name }}</h1>
   <ul class="notice-list">
     {% for a in items %}
     <li>
-      <a href="/detail/{{ a.notice_no }}.html">【{{ a.type_label }}】{{ a.title }}（{{ a.notice_no }}）</a>
+      <a href="/{{ catalog }}/detail/{{ a.notice_no }}.html">【{{ a.type_label }}】{{ a.title }}（{{ a.notice_no }}）</a>
       <span class="pub">{{ a.publish_time }}</span>
     </li>
     {% endfor %}
   </ul>
   <nav class="pagination">
     {% for p in pages %}
-      {% if p == page %}<span class="current">{{ p }}</span>{% else %}<a href="/list.html?page={{ p }}">{{ p }}</a>{% endif %}
+      {% if p == page %}<span class="current">{{ p }}</span>{% else %}<a href="/{{ catalog }}/list.html?page={{ p }}">{{ p }}</a>{% endif %}
     {% endfor %}
-    {% if page < total_pages %}<a href="/list.html?page={{ page + 1 }}" rel="next">下一页</a>{% endif %}
+    {% if page < total_pages %}<a href="/{{ catalog }}/list.html?page={{ page + 1 }}" rel="next">下一页</a>{% endif %}
   </nav>
   <footer>
-    示例公告站 · 故障注入（{{ fail_notice }} 返回 500）：
+    示例公告站 · 故障注入（{{ catalogs[fail_catalog].name }}第 2 页起返回 500）：
     <a href="/admin/fail?on=1">开启</a> / <a href="/admin/fail?on=0">关闭</a>
     （当前：{{ "开" if fail_on else "关" }}）
   </footer>

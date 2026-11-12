@@ -8,7 +8,7 @@
 | 服务 | 目录 | 说明 |
 | --- | --- | --- |
 | 核对工具 | `app/` | FastAPI 网页：输入列表网址 → 抓取同源分页与详情 → 分析展示，SQLite 保存采集轮次 |
-| 示例公告站 | `sample_site/` | FastAPI 模拟公告站：3 页列表分页 + 11 条公告详情（含更正、撤销），支持故障注入 |
+| 示例公告站 | `sample_site/` | FastAPI 模拟公告站：甲、乙两个公告目录（分页列表 + 公告详情，含更正、撤销），支持翻页故障注入 |
 
 ## 快速开始（Docker Compose）
 
@@ -16,8 +16,9 @@
 docker compose up --build
 ```
 
-- 核对工具：http://localhost:8000/ （打开后点击 **开始抓取**，默认已填入示例站列表网址）
-- 示例公告站：http://localhost:8080/list.html?page=1
+- 核对工具：http://localhost:8000/ （打开后点击 **开始抓取**，默认已填入甲站列表网址）
+- 示例公告站甲站目录：http://localhost:8080/a/list.html?page=1
+- 示例公告站乙站目录：http://localhost:8080/b/list.html?page=1
 
 ## 功能说明
 
@@ -32,19 +33,31 @@ docker compose up --build
    页面展示每个项目的最终状态、当前截标时间，以及每条公告的来源链接（依据）。
 3. **轮次持久化（SQLite）**：每次抓取是一个轮次，公告快照挂在轮次下，
    保存于 SQLite（容器卷 `app-data`，`/data/app.db`）。
-   - **任一页面失败**：轮次标记失败并记录出错网址与原因，页面红色横幅提示，
-     项目结果仍展示上一轮成功数据；
+   - **任一页面失败**：轮次标记失败并记录出错网址与原因，页面红色横幅提示；
    - **重抓不叠加**：公告只在整轮全部成功后于单事务内写入，失败轮次不留
-     半截数据；页面始终只展示最近一次成功轮次的结果。
+     半截数据。
+4. **结果隔离（按目录回退）**：每轮按**规范化的起始目录网址**归档
+   （`list.html`、`list.html?page=1`、`list.html?page=2` 归并为同一目录；
+   主机名大小写、默认端口、网址片段不影响目录身份）。
+   页面以最近一轮的目录为准：
+   - 最近一轮成功 → 展示本轮结果；
+   - 最近一轮失败 → 只回退到**同一目录**的最近成功快照，
+     横幅注明快照轮次，来源链接与轮次状态保持一致；
+   - 该目录没有成功快照 → **不显示项目结果**，避免把别的公告站数据
+     当成当前目录的结论。
 
-## 演示失败处理
+## 演示：切换公告站时的失败隔离
 
 ```bash
-# 开启故障注入：详情页 NT-2026-0004 返回 500
+# 1. 在 http://localhost:8000/ 抓甲站（默认网址）→ 成功，展示甲站项目
+# 2. 开启故障注入：乙站列表第 2 页起返回 500（模拟乙站翻页失败）
 curl "http://localhost:8080/admin/fail?on=1"
-# 在 http://localhost:8000/ 点击“开始抓取” → 第 N 轮失败，报出该网址，结果仍是上一轮
-# 关闭故障后重抓 → 新一轮成功，数据整体替换，不叠加
+# 3. 把网址改为乙站 http://sample-site:8000/b/list.html?page=1 再抓
+#    → 第 N 轮失败；乙站没有历史快照时页面不显示任何项目结果（不会误显甲站数据）
+# 4. 关闭故障后重抓乙站 → 成功，展示乙站项目
 curl "http://localhost:8080/admin/fail?on=0"
+# 5. 再次开启故障并重抓乙站 → 失败，但回退展示乙站自己的最近成功快照
+curl "http://localhost:8080/admin/fail?on=1"
 ```
 
 ## 页面结构约定（解析契约）
@@ -62,16 +75,16 @@ curl "http://localhost:8080/admin/fail?on=0"
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DB_PATH` | `/data/app.db`（容器） | SQLite 文件路径 |
-| `DEFAULT_START_URL` | `http://sample-site:8000/list.html?page=1` | 抓取表单预填的列表网址 |
+| `DEFAULT_START_URL` | `http://sample-site:8000/a/list.html?page=1` | 抓取表单预填的列表网址 |
 | `URL_REWRITE_FROM` / `URL_REWRITE_TO` | 见 compose | 把结果页中的内部网址改写为浏览器可访问地址 |
 
 ## 本地开发与测试
 
 ```bash
 pip install -r app/requirements.txt -r sample_site/requirements.txt pytest
-python -m pytest tests/            # 单元测试：公告链分析 + 详情页解析
+python -m pytest tests/            # 单元测试：公告链分析 + 详情页解析 + 目录规范化 + 结果隔离
 # 手动联调：
 cd sample_site && uvicorn main:app --port 8080 &
-cd app && DB_PATH=/tmp/app.db DEFAULT_START_URL=http://localhost:8080/list.html?page=1 \
+cd app && DB_PATH=/tmp/app.db DEFAULT_START_URL=http://localhost:8080/a/list.html?page=1 \
   uvicorn main:app --port 8000
 ```

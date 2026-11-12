@@ -1,4 +1,4 @@
-"""示例公告站的公告数据。
+"""示例公告站的公告数据：甲、乙两个公告目录。
 
 字段与采集端约定的页面结构一一对应：
 - notice_no    公告编号
@@ -17,7 +17,8 @@ TYPE_LABELS = {
     "cancellation": "撤销公告",
 }
 
-ANNOUNCEMENTS = [
+# 甲站：工程建设类公告（3 页分页）
+CATALOG_A = [
     {
         "notice_no": "NT-2026-0001",
         "project_no": "PRJ-2026-001",
@@ -130,16 +131,95 @@ ANNOUNCEMENTS = [
     },
 ]
 
-PAGE_SIZE = 5
+# 乙站：设备物资类公告（2 页分页；故障注入开启后第 2 页起返回 500，模拟翻页失败）
+CATALOG_B = [
+    {
+        "notice_no": "NB-2026-0001",
+        "project_no": "PRJ-2026-101",
+        "type": "tender",
+        "title": "中央空调设备采购",
+        "publish_time": "2026-11-02 09:00",
+        "deadline": "2026-11-23 17:00",
+        "target": None,
+        "body": "现就中央空调设备采购进行公开招标。",
+    },
+    {
+        "notice_no": "NB-2026-0002",
+        "project_no": "PRJ-2026-102",
+        "type": "tender",
+        "title": "电梯维保服务",
+        "publish_time": "2026-11-03 10:00",
+        "deadline": "2026-11-24 12:00",
+        "target": None,
+        "body": "现就电梯维保服务进行公开招标，服务期两年。",
+    },
+    {
+        "notice_no": "NB-2026-0003",
+        "project_no": "PRJ-2026-103",
+        "type": "tender",
+        "title": "实验室检测仪器采购",
+        "publish_time": "2026-11-04 09:30",
+        "deadline": "2026-11-27 17:00",
+        "target": None,
+        "body": "现就实验室检测仪器采购进行公开招标。",
+    },
+    {
+        "notice_no": "NB-2026-0004",
+        "project_no": "PRJ-2026-101",
+        "type": "correction",
+        "title": "中央空调设备采购更正公告",
+        "publish_time": "2026-11-06 09:00",
+        "deadline": "2026-11-26 17:00",
+        "target": "NB-2026-0001",
+        "body": "现将截标时间由 2026-11-23 17:00 更正为 2026-11-26 17:00。",
+    },
+    {
+        "notice_no": "NB-2026-0005",
+        "project_no": "PRJ-2026-102",
+        "type": "cancellation",
+        "title": "电梯维保服务撤销公告",
+        "publish_time": "2026-11-07 15:00",
+        "deadline": None,
+        "target": "NB-2026-0002",
+        "body": "因预算调整，现撤销电梯维保服务招标公告，本项目停止办理。",
+    },
+    {
+        "notice_no": "NB-2026-0006",
+        "project_no": "PRJ-2026-104",
+        "type": "tender",
+        "title": "办公家具采购",
+        "publish_time": "2026-11-08 09:00",
+        "deadline": "2026-11-29 17:00",
+        "target": None,
+        "body": "现就办公家具采购进行公开招标。",
+    },
+]
+
+CATALOGS = {
+    "a": {
+        "name": "甲站 · 工程建设招标公告",
+        "page_size": 5,
+        "announcements": CATALOG_A,
+    },
+    "b": {
+        "name": "乙站 · 设备物资采购公告",
+        "page_size": 4,
+        "announcements": CATALOG_B,
+    },
+}
 
 
-def sorted_announcements():
+def sorted_announcements(catalog):
     """列表页按发布时间倒序展示。"""
-    return sorted(ANNOUNCEMENTS, key=lambda a: (a["publish_time"], a["notice_no"]), reverse=True)
+    return sorted(
+        CATALOGS[catalog]["announcements"],
+        key=lambda a: (a["publish_time"], a["notice_no"]),
+        reverse=True,
+    )
 
 
-def get_by_notice_no(notice_no):
-    for a in ANNOUNCEMENTS:
+def get_by_notice_no(catalog, notice_no):
+    for a in CATALOGS[catalog]["announcements"]:
         if a["notice_no"] == notice_no:
             return a
     return None

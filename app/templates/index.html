@@ -35,16 +35,18 @@
     .round-status.success { color: var(--green); }
     .round-status.failed { color: var(--red); }
     .round-status.running { color: #b8860b; }
-    .empty { color: var(--gray); background: #fff; border: 1px dashed #c8d0d8; border-radius: 6px; padding: 1.5em; text-align: center; }
+    .empty { color: var(--gray); background: #fff; border: 1px dashed #c8d0d8; border-radius: 6px; padding: 1.5em; text-align: center; line-height: 1.8; }
     code { background: #eef1f4; padding: .1em .35em; border-radius: 4px; }
+    .catalog { word-break: break-all; }
   </style>
 </head>
 <body>
   <h1>截标时间核对工具</h1>
-  <p class="subtitle">输入与示例公告站同结构的列表网址，抓取同源分页与详情页，按项目串起公告链，核对真实截标时间。</p>
+  <p class="subtitle">输入与示例公告站同结构的列表网址，抓取同源分页与详情页，按项目串起公告链，核对真实截标时间。
+    结果按起始目录隔离：抓取失败只回退到同一目录的最近成功快照。</p>
 
   <form class="scrape" method="post" action="/scrape">
-    <input type="text" name="start_url" value="{{ default_start_url }}" placeholder="http://sample-site:8000/list.html" required>
+    <input type="text" name="start_url" value="{{ default_start_url }}" placeholder="http://sample-site:8000/a/list.html?page=1" required>
     <button type="submit">开始抓取</button>
   </form>
 
@@ -54,13 +56,16 @@
 
   {% if last_round and last_round['status'] == 'failed' and not msg %}
   <div class="banner err">
-    第 {{ last_round['id'] }} 轮抓取失败：{{ last_round['error_url'] }}（{{ last_round['error_message'] }}）。以下仍为上一轮成功结果。
+    第 {{ last_round['id'] }} 轮抓取失败：<a href="{{ last_round['error_url']|public_url }}">{{ last_round['error_url']|public_url }}</a>（{{ last_round['error_message'] }}）。
+    {% if shown_round %}以下回退展示同一目录第 {{ shown_round['id'] }} 轮的成功快照。{% else %}该目录没有可回退的成功快照，不显示项目结果。{% endif %}
   </div>
   {% endif %}
 
   <h2>项目最终状态</h2>
-  {% if projects %}
-  <p class="muted">结果来自第 {{ latest_ok['id'] }} 轮采集（{{ latest_ok['finished_at'] }} 完成，来源：<a href="{{ latest_ok['start_url']|public_url }}">{{ latest_ok['start_url']|public_url }}</a>）。</p>
+  {% if shown_round %}
+  <p class="muted">结果来自第 {{ shown_round['id'] }} 轮采集（{{ shown_round['finished_at'] }} 完成），
+    目录：<a href="{{ shown_round['catalog_key']|public_url }}">{{ shown_round['catalog_key']|public_url }}</a>，
+    来源：<a href="{{ shown_round['start_url']|public_url }}">{{ shown_round['start_url']|public_url }}</a>。</p>
   <table>
     <thead>
       <tr><th>项目编号</th><th>最终状态</th><th>当前截标时间</th><th>公告链（按发布时间，点击来源查看依据）</th></tr>
@@ -87,6 +92,9 @@
       {% endfor %}
     </tbody>
   </table>
+  {% elif last_round and last_round['status'] == 'failed' %}
+  <div class="empty">目录 <code>{{ last_round['catalog_key'] }}</code> 最近一次抓取失败，且没有可回退的成功快照，不显示项目结果。<br>
+    请修复来源站问题后重新抓取。</div>
   {% else %}
   <div class="empty">尚无成功采集结果。请在上方输入列表网址并点击“开始抓取”。</div>
   {% endif %}
@@ -95,7 +103,7 @@
   {% if rounds %}
   <table>
     <thead>
-      <tr><th>轮次</th><th>开始时间</th><th>结束时间</th><th>起始网址</th><th>状态</th><th>列表页</th><th>详情页</th><th>失败网址 / 原因</th></tr>
+      <tr><th>轮次</th><th>开始时间</th><th>结束时间</th><th>目录（规范化）</th><th>起始网址</th><th>状态</th><th>列表页</th><th>详情页</th><th>失败网址 / 原因</th></tr>
     </thead>
     <tbody>
       {% for r in rounds %}
@@ -103,7 +111,8 @@
         <td>#{{ r['id'] }}</td>
         <td class="muted">{{ r['started_at'] }}</td>
         <td class="muted">{{ r['finished_at'] or '—' }}</td>
-        <td><a href="{{ r['start_url']|public_url }}">{{ r['start_url']|public_url }}</a></td>
+        <td class="catalog"><a href="{{ r['catalog_key']|public_url }}">{{ r['catalog_key']|public_url }}</a></td>
+        <td class="catalog"><a href="{{ r['start_url']|public_url }}">{{ r['start_url']|public_url }}</a></td>
         <td class="round-status {{ r['status'] }}">{{ {'success': '成功', 'failed': '失败', 'running': '进行中'}[r['status']] }}</td>
         <td>{{ r['list_pages'] }}</td>
         <td>{{ r['detail_pages'] }}</td>

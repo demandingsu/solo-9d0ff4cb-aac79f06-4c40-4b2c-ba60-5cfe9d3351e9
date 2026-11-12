@@ -2,6 +2,10 @@
 
 用法：输入与示例公告站同结构的列表网址，点击“开始抓取”，系统抓取同源
 分页与全部详情页，按项目串起公告链，给出每个项目的最终截标时间与状态。
+
+结果隔离：成功快照按规范化的起始目录网址绑定；最近一轮抓取失败时，
+页面只回退到同一目录的最近成功快照，没有可回退快照则不显示项目结果，
+避免把别的公告站数据当成当前目录的结论。
 """
 
 import os
@@ -15,8 +19,9 @@ from fastapi.templating import Jinja2Templates
 import analysis
 import db
 import scraper
+from catalog import normalize_catalog_url
 
-DEFAULT_START_URL = os.environ.get("DEFAULT_START_URL", "http://sample-site:8000/list.html?page=1")
+DEFAULT_START_URL = os.environ.get("DEFAULT_START_URL", "http://sample-site:8000/a/list.html?page=1")
 # 展示层网址改写：容器内部地址 → 浏览器可访问地址（可选）
 URL_REWRITE_FROM = os.environ.get("URL_REWRITE_FROM", "")
 URL_REWRITE_TO = os.environ.get("URL_REWRITE_TO", "")
@@ -42,14 +47,28 @@ def public_url(url: str) -> str:
 templates.env.filters["public_url"] = public_url
 
 
+def resolve_display_round(last_round):
+    """决定页面展示哪一轮的项目结果。
+
+    以最近一轮的目录键为准：最近一轮成功则展示本轮；失败（或中断）则只
+    回退到同一目录键的最近成功快照；同目录没有成功快照时返回 None，
+    页面不显示项目结果。
+    """
+    if last_round is None:
+        return None
+    if last_round["status"] == "success":
+        return last_round
+    return db.get_latest_success_round(last_round["catalog_key"])
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, msg: str = ""):
     rounds = db.get_rounds()
-    latest_ok = db.get_latest_success_round()
-    projects = None
-    if latest_ok is not None:
-        projects = analysis.build_projects(db.get_announcements(latest_ok["id"]))
     last_round = rounds[0] if rounds else None
+    shown_round = resolve_display_round(last_round)
+    projects = None
+    if shown_round is not None:
+        projects = analysis.build_projects(db.get_announcements(shown_round["id"]))
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -57,7 +76,7 @@ def index(request: Request, msg: str = ""):
             "default_start_url": DEFAULT_START_URL,
             "msg": msg,
             "last_round": last_round,
-            "latest_ok": latest_ok,
+            "shown_round": shown_round,
             "projects": projects,
             "rounds": rounds,
         },
@@ -68,16 +87,18 @@ def index(request: Request, msg: str = ""):
 def do_scrape(start_url: str = Form(...)):
     start_url = start_url.strip()
     round_id = db.create_round(start_url)
+    catalog_key = normalize_catalog_url(start_url)
     try:
         result = scraper.scrape(start_url)
     except scraper.ScrapeError as exc:
-        # 任一页面失败：记录出错网址，本轮不产生数据，页面仍展示上一轮结果
+        # 任一页面失败：记录出错网址，本轮不产生数据；
+        # 页面只回退到同一目录的最近成功快照，没有快照则不显示项目结果
         db.finish_round_failed(round_id, exc.url, exc.message)
-        msg = f"第 {round_id} 轮抓取失败：{exc.url}（{exc.message}）。已保留上一轮结果。"
+        msg = f"第 {round_id} 轮抓取失败：{exc.url}（{exc.message}）。{_fallback_hint(catalog_key)}"
         return RedirectResponse(f"/?msg={quote(msg)}", status_code=303)
     except Exception as exc:  # 兜底，避免未预期异常丢轮次
         db.finish_round_failed(round_id, start_url, f"未预期错误：{exc!r}")
-        msg = f"第 {round_id} 轮抓取失败：{start_url}（{exc!r}）。已保留上一轮结果。"
+        msg = f"第 {round_id} 轮抓取失败：{start_url}（{exc!r}）。{_fallback_hint(catalog_key)}"
         return RedirectResponse(f"/?msg={quote(msg)}", status_code=303)
 
     db.finish_round_success(round_id, result.announcements, len(result.list_pages), len(result.detail_pages))
@@ -86,3 +107,11 @@ def do_scrape(start_url: str = Form(...)):
         f"{len(result.detail_pages)} 个详情页，共 {len(result.announcements)} 条公告。"
     )
     return RedirectResponse(f"/?msg={quote(msg)}", status_code=303)
+
+
+def _fallback_hint(catalog_key: str) -> str:
+    """失败提示的收尾语：说明页面将展示同一目录的哪份快照（或没有快照）。"""
+    fallback = db.get_latest_success_round(catalog_key)
+    if fallback is not None:
+        return f"已回退到同一目录第 {fallback['id']} 轮的成功快照。"
+    return "该目录没有可回退的成功快照，页面不显示项目结果。"
